@@ -72,6 +72,9 @@ After this step your S3 bucket and CloudFront distribution is setup. Now you nee
 serverless syncToS3
 ```
 
+The above expects to have aws command line installed.
+=> implement with the node sdk
+
 The expected result should be similar to
 
 ```bash

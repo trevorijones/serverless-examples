@@ -1,6 +1,27 @@
 'use strict';
 
+// Use AWS SDK instead of inviking command line
 const spawnSync = require('child_process').spawnSync;
+const AWS = require('aws-sdk');
+const path = require('path');
+const s3 = AWS.S3;
+
+const { resolve } = require('path');
+const { readdir, readFile } = require('fs').promises;
+
+
+//node 11+
+async function* getFiles(dir) {
+  const dirents = await readdir(dir, { withFileTypes: true });
+  for (const dirent of dirents) {
+    const res = resolve(dir, dirent.name);
+    if (dirent.isDirectory()) {
+      yield* getFiles(res);
+    } else {
+      yield res;
+    }
+  }
+}
 
 class ServerlessPlugin {
   constructor(serverless, options) {
@@ -30,7 +51,8 @@ class ServerlessPlugin {
     this.hooks = {
       'syncToS3:sync': this.syncDirectory.bind(this),
       'domainInfo:domainInfo': this.domainInfo.bind(this),
-      'invalidateCloudFrontCache:invalidateCache': this.invalidateCache.bind(
+      'invalidateCloudFrontCache:invalidateCache': this.invalidateCache
+      .bind(
         this,
       ),
     };
@@ -39,10 +61,12 @@ class ServerlessPlugin {
   runAwsCommand(args) {
     let command = 'aws';
     if (this.serverless.variables.service.provider.region) {
-      command = `${command} --region ${this.serverless.variables.service.provider.region}`;
+      command =
+        `${command} --region ${this.serverless.variables.service.provider.region}`;
     }
     if (this.serverless.variables.service.provider.profile) {
-      command = `${command} --profile ${this.serverless.variables.service.provider.profile}`;
+      command =
+        `${command} --profile ${this.serverless.variables.service.provider.profile}`;
     }
     const result = spawnSync(command, args);
     const stdout = result.stdout.toString();
@@ -54,25 +78,33 @@ class ServerlessPlugin {
       this.serverless.cli.log(sterr);
     }
 
-    return { stdout, sterr };
+    return {
+      stdout,
+      sterr
+    };
   }
 
   // syncs the `app` directory to the provided bucket
-  syncDirectory() {
-    const s3Bucket = this.serverless.variables.service.custom.s3Bucket;
-    const args = [
-      's3',
-      'sync',
-      'app/',
-      `s3://${s3Bucket}/`,
-      '--delete',
-    ];
-    const { sterr } = this.runAwsCommand(args);
-    if (!sterr) {
-      this.serverless.cli.log('Successfully synced to the S3 bucket');
-    } else {
-      throw new Error('Failed syncing to the S3 bucket');
+  async syncDirectory() {
+    const s3BucketName = this.serverless.variables.service.custom.s3Bucket;
+    const directoryPath = this.serverless.variables.service.custom
+      .appDirectory;
+
+    const s3Bucket = new s3({
+      params: {
+        Bucket: s3BucketName
+      }
+    });
+    // walk appDirectory
+    for await (const f of getFiles(directoryPath)) {
+      console.log(f);
+      let content = await readFile(f, 'binary');
+      await s3Bucket.putObject({
+        Key: path.relative(directoryPath,f),
+        Body: content,
+      }).promise();
     }
+    this.serverless.cli.log('Successfully synced to the S3 bucket');
   }
 
   // fetches the domain name from the CloudFront outputs and prints it out
@@ -81,8 +113,9 @@ class ServerlessPlugin {
     const stackName = provider.naming.getStackName(this.options.stage);
     const result = await provider.request(
       'CloudFormation',
-      'describeStacks',
-      { StackName: stackName },
+      'describeStacks', {
+        StackName: stackName
+      },
       this.options.stage,
       this.options.region,
     );
@@ -109,8 +142,7 @@ class ServerlessPlugin {
 
     const result = await provider.request(
       'CloudFront',
-      'listDistributions',
-      {},
+      'listDistributions', {},
       this.options.stage,
       this.options.region,
     );
@@ -132,7 +164,9 @@ class ServerlessPlugin {
         '--paths',
         '/*',
       ];
-      const { sterr } = this.runAwsCommand(args);
+      const {
+        sterr
+      } = this.runAwsCommand(args);
       if (!sterr) {
         this.serverless.cli.log('Successfully invalidated CloudFront cache');
       } else {

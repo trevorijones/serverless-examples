@@ -6,6 +6,7 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "serverless": "^1.81.1",
     "serverless-single-page-app-plugin": "file:./serverless-single-page-app-plugin"
   }
 }
